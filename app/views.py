@@ -1,11 +1,12 @@
 import os
 from app import app, db, login_manager
-from flask import render_template, request, redirect, url_for, flash, session, abort
+from flask import render_template, request, redirect, url_for, flash, session, abort, send_from_directory
 from flask_login import login_user, logout_user, current_user, login_required
 from werkzeug.utils import secure_filename
 from app.models import UserProfile
 from app.forms import LoginForm
-
+from app.forms import UploadForm
+from werkzeug.security import check_password_hash, generate_password_hash
 
 ###
 # Routing for your application.
@@ -26,24 +27,31 @@ def about():
 @app.route('/upload', methods=['POST', 'GET'])
 def upload():
     # Instantiate your form class
+    uploadForm = UploadForm()
 
     # Validate file upload on submit
-    if form.validate_on_submit():
+    if uploadForm.validate_on_submit():
+        photo = uploadForm.photo.data
+        filename = secure_filename(photo.filename)
+        photo.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
         # Get file data and save to your uploads folder
 
         flash('File Saved', 'success')
         return redirect(url_for('home')) # Update this to redirect the user to a route that displays all uploaded image files
 
-    return render_template('upload.html')
+    return render_template('upload.html',form=uploadForm)
 
 
 @app.route('/login', methods=['POST', 'GET'])
 def login():
     form = LoginForm()
-
     # change this to actually validate the entire form submission
     # and not just one field
+
     if form.username.data:
+        username = form.username.data
+        password = form.password.data
         # Get the username and password values from the form.
 
         # Using your model, query database for a user based on the username
@@ -51,11 +59,16 @@ def login():
         # You will need to import the appropriate function to do so.
         # Then store the result of that query to a `user` variable so it can be
         # passed to the login_user() method below.
-
+        user = UserProfile.query.filter_by(username = username)
         # Gets user id, load into session
         login_user(user)
+        if user and check_password_hash(user.password,password):
+            login_user(user[0])
+            
 
         # Remember to flash a message to the user
+            flash("Successful Login")
+            return redirect(url_for("upload"))
         return redirect(url_for("home"))  # The user should be redirected to the upload form instead
     return render_template("login.html", form=form)
 
@@ -100,3 +113,36 @@ def add_header(response):
 def page_not_found(error):
     """Custom 404 page."""
     return render_template('404.html'), 404
+
+def get_uploaded_images():
+
+    rootdir = os.getcwd()
+    uploads_dir = os.path.join(rootdir, 'uploads')
+    images = []
+    for subdir, dirs, files in os.walk(uploads_dir):
+        for file in files:
+            if file.endswith(('.jpg', '.jpeg','.png')):
+                images.append(os.path.join(subdir, file))
+    return images
+
+
+@app.route("/uploads/<filename>")
+def get_image(filename):
+    return send_from_directory(os.path.join(os.getcwd(), app.config['UPLOAD_FOLDER']), filename)
+
+
+@app.route('/files')
+@login_required
+def files():
+
+    images = get_uploaded_images()
+    return render_template('files.html', images=images)
+
+
+@app.route("/logout")
+@login_required
+def logout():
+
+    logout_user()
+    flash('You have been logged out.')
+    return redirect(url_for('home'))
